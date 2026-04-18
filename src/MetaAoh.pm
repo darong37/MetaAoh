@@ -1,0 +1,289 @@
+package MetaAoh;
+
+use strict;
+use warnings;
+
+use Carp qw(croak);
+use Clone qw(clone);
+use Scalar::Util qw(refaddr blessed);
+
+my %state_of;
+
+sub new {
+    my ($cls, $aoh, @order) = @_;
+
+    croak "order required" unless @order;
+
+    if (is_metaAOH($aoh)) {
+        $aoh = $aoh->toAoh;
+    }
+
+    croak "aoh must be ARRAY ref" unless ref($aoh) eq 'ARRAY';
+    my (@cols, %attrs);
+
+    for my $spec (@order) {
+        if ($spec !~ /^([A-Za-z][A-Za-z0-9]*)(#?)$/) {
+            croak "bad order: $spec";
+        }
+
+        my ($col, $mark) = ($1, $2);
+
+        croak "duplicate order key: $col" if exists $attrs{$col};
+
+        push @cols, $col;
+        $attrs{$col} = $mark eq '#' ? 'num' : 'str';
+    }
+
+    validate($aoh, \@cols);
+
+    bless $aoh, $cls;
+    $state_of{ refaddr($aoh) } = {
+        meta => {
+            order => [@order],
+            attrs => \%attrs,
+            cols => \@cols,
+            grouped => 0,
+        },
+    };
+
+    return $aoh;
+}
+
+sub meta {
+    my ($self) = @_;
+
+    my $state = $state_of{ refaddr($self) }
+        or croak "meta state not found";
+
+    return $state->{meta};
+}
+
+sub keys {
+    my ($self) = @_;
+    return @{ $self->meta->{cols} };
+}
+
+sub count {
+    my ($self) = @_;
+    return scalar @$self;
+}
+
+sub toAoh {
+    my ($self) = @_;
+
+    my $rows = $self->meta->{grouped}
+        ? _expand_rows($self, $self->meta->{cols}, {})
+        : $self;
+
+    return [
+        map {
+            my %row = %$_;
+            \%row;
+        } @$rows
+    ];
+}
+
+sub sort {
+    my ($self, @keys) = @_;
+
+    croak "sort requires keys" unless @keys;
+    croak "sort not available on grouped metaAoh" if $self->meta->{grouped};
+
+    my $meta = $self->meta;
+    my %seen;
+
+    for my $key (@keys) {
+        croak "unknown key: $key" unless exists $meta->{attrs}{$key};
+        croak "duplicate key: $key" if $seen{$key}++;
+    }
+
+    my @rows = @$self;
+
+    @rows = sort {
+        for my $key (@keys) {
+            my $type = $meta->{attrs}{$key};
+            my $cmp
+                = $type eq 'num'
+                ? ($a->{$key} <=> $b->{$key})
+                : ($a->{$key} cmp $b->{$key});
+            return $cmp if $cmp;
+        }
+        return 0;
+    } @rows;
+
+    @$self = @rows;
+    return $self;
+}
+
+sub add {
+    my ($self, @rows) = @_;
+
+    croak "add not available on grouped metaAoh" if $self->meta->{grouped};
+
+    my $cols = $self->meta->{cols};
+    validate(\@rows, $cols);
+
+    push @$self, @rows;
+    return $self;
+}
+
+sub group {
+    my ($self, @groups) = @_;
+
+    croak "group not available on grouped metaAoh" if $self->meta->{grouped};
+    croak "group requires groups" unless @groups;
+
+    my $meta = $self->meta;
+    my @cols = @{ $meta->{cols} };
+    my %known = map { $_ => 1 } @cols;
+    my %used;
+
+    for my $group (@groups) {
+        croak "group must be ARRAY ref" unless ref($group) eq 'ARRAY';
+        croak "group must not be empty" unless @$group;
+
+        my %group_seen;
+        for my $key (@$group) {
+            croak "unknown key: $key" unless $known{$key};
+            croak "duplicate key in group: $key" if $group_seen{$key}++;
+            croak "duplicate key across groups: $key" if $used{$key}++;
+        }
+    }
+
+    my @rest = grep { !$used{$_} } @cols;
+    my $grouped = _group_rows($self, \@groups, \@rest);
+    my $meta2 = clone($meta);
+    $meta2->{grouped} = 1;
+
+    bless $grouped, ref($self);
+    $state_of{ refaddr($grouped) } = {
+        meta => $meta2,
+    };
+
+    return $grouped;
+}
+
+sub expand {
+    my ($self) = @_;
+
+    return $self unless $self->meta->{grouped};
+
+    my $aoh = _expand_rows($self, $self->meta->{cols}, {});
+    validate($aoh, $self->meta->{cols});
+
+    return ref($self)->new($aoh, @{ $self->meta->{order} });
+}
+
+sub DESTROY {
+    my ($self) = @_;
+    delete $state_of{ refaddr($self) } if ref($self);
+}
+
+# Normal functions
+
+sub is_metaAOH {
+    my ($value) = @_;
+    return blessed($value) && $value->isa(__PACKAGE__) ? 1 : 0;
+}
+
+sub validate {
+    my ($aoh, $cols) = @_;
+
+    croak "aoh must be ARRAY ref" unless ref($aoh) eq 'ARRAY';
+    croak "cols must be ARRAY ref" unless ref($cols) eq 'ARRAY';
+
+    my %required = map { $_ => 1 } @$cols;
+    my $expected = scalar @$cols;
+
+    for my $row (@$aoh) {
+        croak "row must be HASH ref" unless ref($row) eq 'HASH';
+
+        my @keys = CORE::keys %$row;
+        croak "row has wrong column count" unless @keys == $expected;
+
+        for my $key (@$cols) {
+            croak "missing key: $key" unless exists $row->{$key};
+            croak "undef value not allowed: $key" unless defined $row->{$key};
+        }
+
+        for my $key (@keys) {
+            croak "unknown key: $key" unless $required{$key};
+        }
+    }
+
+    return 1;
+}
+
+sub _group_rows {
+    my ($rows, $groups, $rest) = @_;
+
+    return [
+        map {
+            my %leaf;
+            @leaf{@$rest} = @$_{@$rest};
+            \%leaf;
+        } @$rows
+    ] unless @$groups;
+
+    my ($cols, @next_groups) = @$groups;
+    my (%bucket, @order_of_bucket);
+
+    for my $row (@$rows) {
+        my $bucket_key = join "\x1E", map { defined $row->{$_} ? $row->{$_} : '' } @$cols;
+
+        if (!exists $bucket{$bucket_key}) {
+            $bucket{$bucket_key} = [];
+            push @order_of_bucket, $bucket_key;
+        }
+
+        push @{ $bucket{$bucket_key} }, $row;
+    }
+
+    my @out;
+
+    for my $bucket_key (@order_of_bucket) {
+        my $rows2 = $bucket{$bucket_key};
+        my %node = map { $_ => $rows2->[0]{$_} } @$cols;
+
+        $node{'*'} = _group_rows($rows2, \@next_groups, $rest);
+        push @out, \%node;
+    }
+
+    return \@out;
+}
+
+sub _expand_rows {
+    my ($rows, $cols, $base) = @_;
+    my @out;
+
+    for my $row (@$rows) {
+        croak "grouped row must be HASH ref" unless ref($row) eq 'HASH';
+
+        my %merged = (%$base);
+        delete $merged{'*'};
+
+        for my $key (CORE::keys %$row) {
+            next if $key eq '*';
+            $merged{$key} = $row->{$key};
+        }
+
+        if (exists $row->{'*'}) {
+            croak "group child must be ARRAY ref" unless ref($row->{'*'}) eq 'ARRAY';
+            push @out, @{ _expand_rows($row->{'*'}, $cols, \%merged) };
+            next;
+        }
+
+        my %flat = map { $_ => $merged{$_} } @$cols;
+
+        for my $key (@$cols) {
+            croak "expand missing key: $key" unless exists $flat{$key};
+            croak "expand undef value: $key" unless defined $flat{$key};
+        }
+
+        push @out, \%flat;
+    }
+
+    return \@out;
+}
+
+1;
