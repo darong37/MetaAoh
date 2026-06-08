@@ -48,6 +48,7 @@ my $sorted = MetaAoh->new(
         { name => 'b', age => '10' },
         { name => 'a', age => '20' },
         { name => 'a', age => '05' },
+        { name => 'a', age => '9' },
     ],
     'name',
     'age#',
@@ -71,6 +72,7 @@ is_deeply(
     [ map { [ @$_{qw(name age)} ] } @$sorted ],
     [
         [ 'a', '05' ],
+        [ 'a', '9' ],
         [ 'a', '20' ],
         [ 'b', '10' ],
     ],
@@ -200,5 +202,45 @@ is_deeply( $cloned->meta, $m->meta, 'new keeps meta when same order is explicitl
 
 eval { MetaAoh->new($g) };
 like( $@, qr/order required/, 'new requires order even for metaAoh input' );
+
+# Bug 6: underscore column names must be accepted
+my $under = MetaAoh->new( [ { col_name => 'v', _id => '1' } ], 'col_name', '_id' );
+ok( MetaAoh::is_metaAOH($under), 'new accepts underscore column names' );
+
+# '*' is reserved as AOT child key — must be rejected as a column name
+eval { MetaAoh->new( [ { q => 'a', '*' => 'x' } ], 'q', '*' ) };
+like( $@, qr/bad order/, 'new rejects reserved column name *' );
+
+# Bug 5: multi-column group where values contain \x1E must not collide
+# Row1: g1="a\x1Eb", g2="c"  → naive join gives "a\x1Eb\x1Ec"
+# Row2: g1="a",      g2="b\x1Ec" → naive join also gives "a\x1Eb\x1Ec"  (collision!)
+my $sep_m = MetaAoh->new(
+    [
+        { g1 => "a\x1Eb", g2 => 'c',      val => '1' },
+        { g1 => 'a',      g2 => "b\x1Ec", val => '2' },
+    ],
+    'g1', 'g2', 'val',
+);
+my $sep_g = $sep_m->group( [ 'g1', 'g2' ] );
+is( $sep_g->count, 2, 'group keeps rows with \\x1E in value separate' );
+
+# Bug 1: corrupt AOT (missing a column in a leaf) should croak "expand missing key"
+my $corrupt_g = MetaAoh->new( [ { A => 'a1', B => 'b1' } ], 'A', 'B' )->group( ['A'] );
+push @$corrupt_g, { A => 'a2', '*' => [ {} ] };    # leaf {} is missing B
+eval { $corrupt_g->expand };
+like( $@, qr/expand missing key: B/, 'expand croaks missing key for corrupt leaf' );
+
+my $flat   = MetaAoh->new( [ { X => 'v' } ], 'X' );
+my $eflat  = $flat->expand;
+ok( $flat != $eflat, 'expand on flat metaAoh returns new object' );
+
+my $orig = [ { name => 'b' }, { name => 'a' } ];
+MetaAoh->new( $orig, 'name' );
+ok( ref($orig) ne 'MetaAoh', 'new does not bless the caller arrayref' );
+
+my $orig2 = [ { name => 'b' }, { name => 'a' } ];
+my $ms = MetaAoh->new( $orig2, 'name' );
+$ms->sort('name');
+is( $orig2->[0]{name}, 'b', 'sort does not mutate the original arrayref' );
 
 done_testing;

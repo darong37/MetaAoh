@@ -4,10 +4,10 @@ use strict;
 use warnings;
 
 use Carp qw(croak);
-use Clone qw(clone);
-use Scalar::Util qw(refaddr blessed);
+use Hash::Util::FieldHash qw(fieldhash);
+use Scalar::Util qw(blessed);
 
-my %state_of;
+fieldhash my %state_of;
 
 sub new {
     my ($cls, $aoh, @order) = @_;
@@ -22,7 +22,7 @@ sub new {
     my (@cols, %attrs);
 
     for my $spec (@order) {
-        if ($spec !~ /^([A-Za-z][A-Za-z0-9]*)(#?)$/) {
+        if ($spec !~ /^([^\x00-\x1F#*]+)(#?)$/) {
             croak "bad order: $spec";
         }
 
@@ -36,8 +36,9 @@ sub new {
 
     validate($aoh, \@cols);
 
-    bless $aoh, $cls;
-    $state_of{ refaddr($aoh) } = {
+    my $obj = [@$aoh];
+    bless $obj, $cls;
+    $state_of{$obj} = {
         meta => {
             order => [@order],
             attrs => \%attrs,
@@ -46,13 +47,13 @@ sub new {
         },
     };
 
-    return $aoh;
+    return $obj;
 }
 
 sub meta {
     my ($self) = @_;
 
-    my $state = $state_of{ refaddr($self) }
+    my $state = $state_of{$self}
         or croak "meta state not found";
 
     return $state->{meta};
@@ -97,9 +98,7 @@ sub sort {
         croak "duplicate key: $key" if $seen{$key}++;
     }
 
-    my @rows = @$self;
-
-    @rows = sort {
+    @$self = sort {
         for my $key (@keys) {
             my $type = $meta->{attrs}{$key};
             my $cmp
@@ -109,9 +108,7 @@ sub sort {
             return $cmp if $cmp;
         }
         return 0;
-    } @rows;
-
-    @$self = @rows;
+    } @$self;
     return $self;
 }
 
@@ -152,11 +149,10 @@ sub group {
 
     my @rest = grep { !$used{$_} } @cols;
     my $grouped = _group_rows($self, \@groups, \@rest);
-    my $meta2 = clone($meta);
-    $meta2->{grouped} = 1;
+    my $meta2 = { %$meta, grouped => 1 };
 
     bless $grouped, ref($self);
-    $state_of{ refaddr($grouped) } = {
+    $state_of{$grouped} = {
         meta => $meta2,
     };
 
@@ -165,18 +161,7 @@ sub group {
 
 sub expand {
     my ($self) = @_;
-
-    return $self unless $self->meta->{grouped};
-
-    my $aoh = _expand_rows($self, $self->meta->{cols}, {});
-    validate($aoh, $self->meta->{cols});
-
-    return ref($self)->new($aoh, @{ $self->meta->{order} });
-}
-
-sub DESTROY {
-    my ($self) = @_;
-    delete $state_of{ refaddr($self) } if ref($self);
+    return ref($self)->new($self->toAoh, @{ $self->meta->{order} });
 }
 
 # Normal functions
@@ -192,7 +177,6 @@ sub validate {
     croak "aoh must be ARRAY ref" unless ref($aoh) eq 'ARRAY';
     croak "cols must be ARRAY ref" unless ref($cols) eq 'ARRAY';
 
-    my %required = map { $_ => 1 } @$cols;
     my $expected = scalar @$cols;
 
     for my $row (@$aoh) {
@@ -204,10 +188,6 @@ sub validate {
         for my $key (@$cols) {
             croak "missing key: $key" unless exists $row->{$key};
             croak "undef value not allowed: $key" unless defined $row->{$key};
-        }
-
-        for my $key (@keys) {
-            croak "unknown key: $key" unless $required{$key};
         }
     }
 
@@ -229,7 +209,10 @@ sub _group_rows {
     my (%bucket, @order_of_bucket);
 
     for my $row (@$rows) {
-        my $bucket_key = join "\x1E", map { defined $row->{$_} ? $row->{$_} : '' } @$cols;
+        my $bucket_key = join "\x1E", map {
+            my $v = defined $row->{$_} ? $row->{$_} : '';
+            length($v) . ':' . $v;
+        } @$cols;
 
         if (!exists $bucket{$bucket_key}) {
             $bucket{$bucket_key} = [];
@@ -260,7 +243,6 @@ sub _expand_rows {
         croak "grouped row must be HASH ref" unless ref($row) eq 'HASH';
 
         my %merged = (%$base);
-        delete $merged{'*'};
 
         for my $key (CORE::keys %$row) {
             next if $key eq '*';
@@ -273,13 +255,13 @@ sub _expand_rows {
             next;
         }
 
-        my %flat = map { $_ => $merged{$_} } @$cols;
-
         for my $key (@$cols) {
-            croak "expand missing key: $key" unless exists $flat{$key};
-            croak "expand undef value: $key" unless defined $flat{$key};
+            croak "expand missing key: $key" unless exists $merged{$key};
+            croak "expand undef value: $key" unless defined $merged{$key};
         }
 
+        my %flat;
+        @flat{@$cols} = @merged{@$cols};
         push @out, \%flat;
     }
 

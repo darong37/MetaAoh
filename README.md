@@ -63,4 +63,3 @@ my $flat = $g->expand;
 ## Requirements
 
 - Perl 5.10+
-- [Clone](https://metacpan.org/pod/Clone)
