@@ -60,6 +60,14 @@ my $flat = $g->expand;
 | `NAME` | Column `NAME` with `str` attribute (string comparison) |
 | `NAME#` | Column `NAME` with `num` attribute (numeric comparison) |
 
+The following characters are not allowed in `NAME`:
+
+| Character | Reason |
+|---|---|
+| `#` | Reserved as attribute marker |
+| `*` | Reserved as AOT child container key |
+| ASCII control characters (`\x00`–`\x1F`) | Not permitted |
+
 ## Requirements
 
-- Perl 5.10+
+- Perl 5.38.5

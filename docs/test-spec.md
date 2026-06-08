@@ -4,7 +4,9 @@
 
 - `Test::More` を使用。
 - テストファイル: `test/metaaoh.t`
-- 実行: `perl -Isrc -Ilib test/*.t`
+- 実行: `prove -lr test/`
+- テスト実行時の環境変数は `.claude/settings.json` の `env` が設定済みである前提とする。
+- `PERL5LIB=...` や `LOGDIR=...` をテストコマンドへ直接書かない。
 
 ## テストケース一覧
 
@@ -36,7 +38,7 @@
 
 | # | 内容 | 確認方法 |
 |---|---|---|
-| 10 | 複数カラム指定・`num` 属性での並べ替えが正しい | `is_deeply([...], [[a,05],[a,20],[b,10]])` |
+| 10 | 複数カラム指定・`num` 属性での並べ替えが正しい | `is_deeply([...], [[a,05],[a,9],[a,20],[b,10]])` |
 | 11 | grouped metaAoh に対する `sort` がエラーになる | `like($@, qr/sort not available/)` |
 
 ### add / toAoh
@@ -69,3 +71,15 @@
 | 25 | `new` に metaAoh を渡すと平坦化して再生成される | `is_deeply($cloned, $m)` |
 | 26 | 同じ `order` を明示すれば `meta` が同一になる | `is_deeply($cloned->meta, $m->meta)` |
 | 27 | `new` に metaAoh を渡すとき `order` を省略するとエラー | `like($@, qr/order required/)` |
+
+### 追加の回帰テスト
+
+| # | 内容 | 確認方法 |
+|---|---|---|
+| 28 | `_` を含むカラム名を受け入れる | `ok(is_metaAOH($under))` |
+| 29 | 予約カラム名 `*` を拒否する | `like($@, qr/bad order/)` |
+| 30 | グループキー値に `\x1E` を含んでもバケット衝突しない | `is($sep_g->count, 2)` |
+| 31 | 不正 AOT の葉でカラムが欠けている場合は `expand missing key` になる | `like($@, qr/expand missing key:/)` |
+| 32 | flat metaAoh に対する `expand` は新しいオブジェクトを返す | `ok($flat != $eflat)` |
+| 33 | `new` は呼び出し元 arrayref を bless しない | `ok(ref($orig) ne 'MetaAoh')` |
+| 34 | `sort` は呼び出し元 arrayref を変更しない | `is($orig2->[0]{name}, 'b')` |

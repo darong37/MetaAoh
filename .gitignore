@@ -31,6 +31,7 @@ Thumbs.db
 CLAUDE.md
 AGENTS.md
 lib/
+.codex/
 .claude/worktrees/
 .claude/commands/
 .claude/settings.json
