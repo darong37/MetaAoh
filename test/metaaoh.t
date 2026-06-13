@@ -182,6 +182,37 @@ like( $@, qr/unknown key: Z/, 'group rejects unknown key' );
 eval { $m->group(['A'], ['A']) };
 like( $@, qr/duplicate key across groups: A/, 'group rejects duplicate key across groups' );
 
+# キー再出現(ソート漏れ)の検出
+{
+    # 単一レベル: k が A, B, A と分断して再出現
+    my $u1 = MetaAoh->new(
+        [ { k => 'A', v => '1' }, { k => 'B', v => '2' }, { k => 'A', v => '3' } ],
+        'k', 'v',
+    );
+    eval { $u1->group(['k']) };
+    like( $@, qr/reappear|unsorted|sort/i,
+        'group croaks on single-level key reappearance' );
+
+    # 多レベル: 全結合キーは各1回でも level1 が分断する (A,x),(B,y),(A,z)
+    my $u2 = MetaAoh->new(
+        [ { a => 'A', b => 'x', c => '1' },
+          { a => 'B', b => 'y', c => '2' },
+          { a => 'A', b => 'z', c => '3' } ],
+        'a', 'b', 'c',
+    );
+    eval { $u2->group( ['a'], ['b'] ) };
+    like( $@, qr/reappear|unsorted|sort/i,
+        'group croaks when an outer level key splits even if the full key is unique' );
+
+    # ソート済みは croak しない(境界)
+    my $s1 = MetaAoh->new(
+        [ { k => 'A', v => '1' }, { k => 'A', v => '2' }, { k => 'B', v => '3' } ],
+        'k', 'v',
+    );
+    my $gs = $s1->group(['k']);
+    is( $gs->count, 2, 'sorted input groups without error' );
+}
+
 my $expanded = $g->expand;
 my $cloned   = MetaAoh->new($g, @{ $g->meta->{order} });
 

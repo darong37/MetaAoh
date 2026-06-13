@@ -147,6 +147,10 @@ sub group {
         }
     }
 
+    # 入力はソート済み前提。各階層の累積キー組が分断して再出現したら、
+    # 呼び出し側のソート漏れ(ORDER BY 忘れ等)として croak する。
+    _check_group_sorted($self, \@groups);
+
     my @rest = grep { !$used{$_} } @cols;
     my $grouped = _group_rows($self, \@groups, \@rest);
     my $meta2 = { %$meta, grouped => 1 };
@@ -192,6 +196,33 @@ sub validate {
     }
 
     return 1;
+}
+
+# 入力がソート済みかを検証する。各階層 L について「外側からの累積キー組」
+# (level1 の組、level1+level2 の組、…)を順に見て、一度途切れたキー組が
+# 再び現れたら croak する。最深の全結合キーだけでは上位レベルの分断を
+# 捕捉できないため、各レベルを個別に確認する。
+sub _check_group_sorted {
+    my ($rows, $groups) = @_;
+
+    my @cumulative;
+    for my $group (@$groups) {
+        push @cumulative, @$group;
+        my %seen;
+        my $prev;
+        for my $row (@$rows) {
+            my $key = join "\x1E", map {
+                my $v = defined $row->{$_} ? $row->{$_} : '';
+                length($v) . ':' . $v;
+            } @cumulative;
+            if ( !defined $prev || $key ne $prev ) {
+                croak "group: key reappears (unsorted input); call sort() first"
+                    if $seen{$key}++;
+                $prev = $key;
+            }
+        }
+    }
+    return;
 }
 
 sub _group_rows {

@@ -59,6 +59,9 @@
 | 18 | grouped metaAoh に対する `group` がエラーになる | `like($@, qr/group not available/)` |
 | 19 | `group` で未知カラムを指定するとエラーになる | `like($@, qr/unknown key:/)` |
 | 20 | `group` でグループ間カラム重複があるとエラーになる | `like($@, qr/duplicate key across groups:/)` |
+| 20a | `group` で単一レベルのキーが分断して再出現するとエラー | `like($@, qr/reappear/)` |
+| 20b | `group` で全結合キーは各1回でも外側レベルが分断するとエラー | `like($@, qr/reappear/)` |
+| 20c | ソート済み入力の `group` はエラーにならない | `is($gs->count, 2)` |
 
 ### expand / toAoh（grouped）/ new（metaAoh 入力）
 

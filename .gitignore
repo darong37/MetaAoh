@@ -27,12 +27,17 @@ local/
 .DS_Store
 Thumbs.db
 
+# Reference materials (not part of the repo)
+docs/sample/
+
 # Project local files
+.gitignore
 CLAUDE.md
 AGENTS.md
 lib/
+output/
 .codex/
+docs/rules/
 .claude/worktrees/
 .claude/commands/
 .claude/settings.json
-docs/rules/

@@ -48,7 +48,7 @@ my $flat = $g->expand;
 | `$m->toAoh()` | `$aoh` | Return a flat AOH copy (expands if grouped) |
 | `$m->sort(@keys)` | `metaAoh` | Sort rows by the given keys in priority order |
 | `$m->add(@rows)` | `metaAoh` | Append validated rows |
-| `$m->group(@groups)` | `metaAoh` | Group rows into a tree structure |
+| `$m->group(@groups)` | `metaAoh` | Group rows into a tree structure (input must be sorted; croaks if a key re-appears) |
 | `$m->expand()` | `metaAoh` | Restore a grouped metaAoh to flat form |
 | `MetaAoh::is_metaAOH($v)` | `$bool` | Return true if value is a metaAoh |
 | `MetaAoh::validate($aoh, $cols)` | `$bool` | Validate AOH against cols; croaks on failure |

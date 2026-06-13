@@ -45,7 +45,7 @@ my $flat = $g->expand;
 | `$m->toAoh()` | `$aoh` | 平坦な AOH のコピーを返す（grouped なら展開） |
 | `$m->sort(@keys)` | `metaAoh` | 指定カラムの優先順でソート |
 | `$m->add(@rows)` | `metaAoh` | 検証済みの row を追加 |
-| `$m->group(@groups)` | `metaAoh` | row を木構造にグループ化 |
+| `$m->group(@groups)` | `metaAoh` | row を木構造にグループ化(入力はソート済み前提。キーが再出現すると croak) |
 | `$m->expand()` | `metaAoh` | grouped metaAoh を平坦な形に戻す |
 | `MetaAoh::is_metaAOH($v)` | `$bool` | metaAoh なら真を返す |
 | `MetaAoh::validate($aoh, $cols)` | `$bool` | AOH を cols に対して検証（失敗時は croak） |
