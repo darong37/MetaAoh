@@ -3,7 +3,7 @@ package MetaAoh;
 use strict;
 use warnings;
 
-use Carp qw(croak);
+use CommonIO qw(dying);
 use Hash::Util::FieldHash qw(fieldhash);
 use Scalar::Util qw(blessed);
 
@@ -12,23 +12,23 @@ fieldhash my %state_of;
 sub new {
     my ($cls, $aoh, @order) = @_;
 
-    croak "order required" unless @order;
+    dying "order required" unless @order;
 
     if (is_metaAOH($aoh)) {
         $aoh = $aoh->toAoh;
     }
 
-    croak "aoh must be ARRAY ref" unless ref($aoh) eq 'ARRAY';
+    dying "aoh must be ARRAY ref" unless ref($aoh) eq 'ARRAY';
     my (@cols, %attrs);
 
     for my $spec (@order) {
         if ($spec !~ /^([^\x00-\x1F#*]+)(#?)$/) {
-            croak "bad order: $spec";
+            dying "bad order: $spec";
         }
 
         my ($col, $mark) = ($1, $2);
 
-        croak "duplicate order key: $col" if exists $attrs{$col};
+        dying "duplicate order key: $col" if exists $attrs{$col};
 
         push @cols, $col;
         $attrs{$col} = $mark eq '#' ? 'num' : 'str';
@@ -54,7 +54,7 @@ sub meta {
     my ($self) = @_;
 
     my $state = $state_of{$self}
-        or croak "meta state not found";
+        or dying "meta state not found";
 
     return $state->{meta};
 }
@@ -87,15 +87,15 @@ sub toAoh {
 sub sort {
     my ($self, @keys) = @_;
 
-    croak "sort requires keys" unless @keys;
-    croak "sort not available on grouped metaAoh" if $self->meta->{grouped};
+    dying "sort requires keys" unless @keys;
+    dying "sort not available on grouped metaAoh" if $self->meta->{grouped};
 
     my $meta = $self->meta;
     my %seen;
 
     for my $key (@keys) {
-        croak "unknown key: $key" unless exists $meta->{attrs}{$key};
-        croak "duplicate key: $key" if $seen{$key}++;
+        dying "unknown key: $key" unless exists $meta->{attrs}{$key};
+        dying "duplicate key: $key" if $seen{$key}++;
     }
 
     @$self = sort {
@@ -115,7 +115,7 @@ sub sort {
 sub add {
     my ($self, @rows) = @_;
 
-    croak "add not available on grouped metaAoh" if $self->meta->{grouped};
+    dying "add not available on grouped metaAoh" if $self->meta->{grouped};
 
     my $cols = $self->meta->{cols};
     validate(\@rows, $cols);
@@ -127,8 +127,8 @@ sub add {
 sub group {
     my ($self, @groups) = @_;
 
-    croak "group not available on grouped metaAoh" if $self->meta->{grouped};
-    croak "group requires groups" unless @groups;
+    dying "group not available on grouped metaAoh" if $self->meta->{grouped};
+    dying "group requires groups" unless @groups;
 
     my $meta = $self->meta;
     my @cols = @{ $meta->{cols} };
@@ -136,19 +136,19 @@ sub group {
     my %used;
 
     for my $group (@groups) {
-        croak "group must be ARRAY ref" unless ref($group) eq 'ARRAY';
-        croak "group must not be empty" unless @$group;
+        dying "group must be ARRAY ref" unless ref($group) eq 'ARRAY';
+        dying "group must not be empty" unless @$group;
 
         my %group_seen;
         for my $key (@$group) {
-            croak "unknown key: $key" unless $known{$key};
-            croak "duplicate key in group: $key" if $group_seen{$key}++;
-            croak "duplicate key across groups: $key" if $used{$key}++;
+            dying "unknown key: $key" unless $known{$key};
+            dying "duplicate key in group: $key" if $group_seen{$key}++;
+            dying "duplicate key across groups: $key" if $used{$key}++;
         }
     }
 
     # 入力はソート済み前提。各階層の累積キー組が分断して再出現したら、
-    # 呼び出し側のソート漏れ(ORDER BY 忘れ等)として croak する。
+    # 呼び出し側のソート漏れ(ORDER BY 忘れ等)として dying する。
     _check_group_sorted($self, \@groups);
 
     my @rest = grep { !$used{$_} } @cols;
@@ -178,20 +178,20 @@ sub is_metaAOH {
 sub validate {
     my ($aoh, $cols) = @_;
 
-    croak "aoh must be ARRAY ref" unless ref($aoh) eq 'ARRAY';
-    croak "cols must be ARRAY ref" unless ref($cols) eq 'ARRAY';
+    dying "aoh must be ARRAY ref" unless ref($aoh) eq 'ARRAY';
+    dying "cols must be ARRAY ref" unless ref($cols) eq 'ARRAY';
 
     my $expected = scalar @$cols;
 
     for my $row (@$aoh) {
-        croak "row must be HASH ref" unless ref($row) eq 'HASH';
+        dying "row must be HASH ref" unless ref($row) eq 'HASH';
 
         my @keys = CORE::keys %$row;
-        croak "row has wrong column count" unless @keys == $expected;
+        dying "row has wrong column count" unless @keys == $expected;
 
         for my $key (@$cols) {
-            croak "missing key: $key" unless exists $row->{$key};
-            croak "undef value not allowed: $key" unless defined $row->{$key};
+            dying "missing key: $key" unless exists $row->{$key};
+            dying "undef value not allowed: $key" unless defined $row->{$key};
         }
     }
 
@@ -200,7 +200,7 @@ sub validate {
 
 # 入力がソート済みかを検証する。各階層 L について「外側からの累積キー組」
 # (level1 の組、level1+level2 の組、…)を順に見て、一度途切れたキー組が
-# 再び現れたら croak する。最深の全結合キーだけでは上位レベルの分断を
+# 再び現れたら dying する。最深の全結合キーだけでは上位レベルの分断を
 # 捕捉できないため、各レベルを個別に確認する。
 sub _check_group_sorted {
     my ($rows, $groups) = @_;
@@ -216,7 +216,7 @@ sub _check_group_sorted {
                 length($v) . ':' . $v;
             } @cumulative;
             if ( !defined $prev || $key ne $prev ) {
-                croak "group: key reappears (unsorted input); call sort() first"
+                dying "group: key reappears (unsorted input); call sort() first"
                     if $seen{$key}++;
                 $prev = $key;
             }
@@ -271,7 +271,7 @@ sub _expand_rows {
     my @out;
 
     for my $row (@$rows) {
-        croak "grouped row must be HASH ref" unless ref($row) eq 'HASH';
+        dying "grouped row must be HASH ref" unless ref($row) eq 'HASH';
 
         my %merged = (%$base);
 
@@ -281,14 +281,14 @@ sub _expand_rows {
         }
 
         if (exists $row->{'*'}) {
-            croak "group child must be ARRAY ref" unless ref($row->{'*'}) eq 'ARRAY';
+            dying "group child must be ARRAY ref" unless ref($row->{'*'}) eq 'ARRAY';
             push @out, @{ _expand_rows($row->{'*'}, $cols, \%merged) };
             next;
         }
 
         for my $key (@$cols) {
-            croak "expand missing key: $key" unless exists $merged{$key};
-            croak "expand undef value: $key" unless defined $merged{$key};
+            dying "expand missing key: $key" unless exists $merged{$key};
+            dying "expand undef value: $key" unless defined $merged{$key};
         }
 
         my %flat;
