@@ -168,7 +168,7 @@ sub expand {
     return ref($self)->new($self->toAoh, @{ $self->meta->{order} });
 }
 
-# Normal functions
+# 通常の関数
 
 sub is_metaAOH {
     my ($value) = @_;
